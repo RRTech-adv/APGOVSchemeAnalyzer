@@ -4,6 +4,7 @@ import Navbar from "@/components/Navbar";
 import DistrictSelector from "@/components/DistrictSelector";
 import DocumentUpload from "@/components/DocumentUpload";
 import SectorCard from "@/components/SectorCard";
+import SectorDataView from "@/components/SectorDataView";
 import ChartsSection from "@/components/ChartsSection";
 import ChatInterface from "@/components/ChatInterface";
 import { GraduationCap, Heart, Sprout, Home, Lightbulb, Factory, Wifi, Users, Loader2 } from "lucide-react";
@@ -78,20 +79,44 @@ const Dashboard = () => {
           sectors: {} as any
         };
 
-        // Transform sectors data
+        // Transform sectors data - now includes all information from subcategories
         Object.entries(data.sectors || {}).forEach(([sectorName, subCategories]: [string, any]) => {
           const schemes: any[] = [];
           Object.entries(subCategories || {}).forEach(([subCatName, subCatData]: [string, any]) => {
-            const actionPoints = subCatData?.action_points || [];
+            // Handle both old format (action_points directly) and new format (information object)
+            let actionPoints = [];
+            let additionalDetails: any = {};
+            
+            // Debug: log the raw subCatData structure
+            console.log(`Dashboard: Processing ${sectorName}/${subCatName}:`, subCatData);
+            
+            if (subCatData?.information) {
+              // New format
+              actionPoints = subCatData.information.action_points || [];
+              additionalDetails = subCatData.information.additional_details || {};
+              console.log(`Dashboard: New format - found ${actionPoints.length} action points and ${Object.keys(additionalDetails).length} additional details`);
+            } else if (subCatData?.action_points) {
+              // Old format
+              actionPoints = subCatData.action_points || [];
+              additionalDetails = subCatData.additional_details || {};
+              console.log(`Dashboard: Old format - found ${actionPoints.length} action points`);
+            } else {
+              // Fallback: check if subCatData itself is an array or has direct properties
+              if (Array.isArray(subCatData)) {
+                actionPoints = subCatData;
+              }
+            }
+            
+            // Add action points as schemes
             actionPoints.forEach((ap: any) => {
               // Calculate target and achievement from percentage if needed
-              // If we have percentage, estimate target=100 and achievement=percentage
               const percentage = ap.achievement_percentage || 0;
               const estimatedTarget = 100; // Default target
               const estimatedAchievement = Math.round(estimatedTarget * (percentage / 100));
               
               schemes.push({
                 name: ap.action_name || subCatName,
+                sub_category: subCatName,
                 current_status: ap.current_status,
                 achievement_percentage: percentage,
                 data_source: ap.data_source,
@@ -99,9 +124,28 @@ const Dashboard = () => {
                 // Fields required by SectorCard
                 percentage: percentage,
                 target: estimatedTarget,
-                achievement: estimatedAchievement
+                achievement: estimatedAchievement,
+                // Include all additional details - ensure it's always an object
+                additional_details: additionalDetails && typeof additionalDetails === 'object' ? additionalDetails : {}
               });
             });
+            
+            // Debug: log if we have additional details
+            if (Object.keys(additionalDetails).length > 0) {
+              console.log(`Dashboard: Found additional details for ${sectorName}/${subCatName}:`, additionalDetails);
+            }
+            
+            // If no action points but there's additional details, create a scheme entry for the subcategory
+            if (actionPoints.length === 0 && Object.keys(additionalDetails).length > 0) {
+              schemes.push({
+                name: subCatName,
+                sub_category: subCatName,
+                // Include all additional details as the main information
+                additional_details: additionalDetails,
+                // Show as information entry (not an action point)
+                is_info_only: true
+              });
+            }
           });
           if (schemes.length > 0) {
             transformedData.sectors[sectorName] = schemes;
@@ -171,8 +215,8 @@ const Dashboard = () => {
       
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* District Selector and Upload Section */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-          <div className="lg:col-span-2">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+          <div>
             {districts.length > 0 && selectedDistrict ? (
               <DistrictSelector
                 selectedDistrict={selectedDistrict}
@@ -216,17 +260,24 @@ const Dashboard = () => {
               </div>
             )}
 
+            {/* Tabular and Accordion View */}
+            {districtData && Object.keys(districtData.sectors || {}).length > 0 && (
+              <div className="mb-8">
+                <SectorDataView data={districtData.sectors || {}} />
+              </div>
+            )}
+
             {/* Sector Cards */}
             {districtData && Object.keys(districtData.sectors || {}).length > 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {Object.entries(districtData.sectors || {}).map(([sector, schemes]: [string, any]) => (
+                {/* {Object.entries(districtData.sectors || {}).map(([sector, schemes]: [string, any]) => (
                   <SectorCard
                     key={sector}
                     title={sector}
                     schemes={schemes}
                     icon={sectorIcons[sector] || <Sprout className="h-5 w-5 text-primary" />}
                   />
-                ))}
+                ))} */}
               </div>
             ) : (
               <div className="text-center py-12">
@@ -262,3 +313,4 @@ const Dashboard = () => {
 };
 
 export default Dashboard;
+

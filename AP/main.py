@@ -69,5 +69,13 @@ async def health_check():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # Configure timeouts for large file uploads and processing
+    # timeout_keep_alive keeps connections alive, timeout_graceful_shutdown for cleanup
+    uvicorn.run(
+        app, 
+        host="0.0.0.0", 
+        port=8000,
+        timeout_keep_alive=600,  # 10 minutes - allow long uploads to complete
+        timeout_graceful_shutdown=30
+    )
 

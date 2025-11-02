@@ -54,25 +54,54 @@ class ParserService:
         
         text_content = []
         
-        # Try pdfplumber first
+        # Try pdfplumber first (better for complex layouts)
         try:
             import pdfplumber
             with pdfplumber.open(file_path) as pdf:
-                for page in pdf.pages:
-                    text = page.extract_text()
-                    if text:
-                        text_content.append(text)
-            return "\n".join(text_content)
+                total_pages = len(pdf.pages)
+                print(f"Extracting text from PDF with {total_pages} pages...")
+                
+                for i, page in enumerate(pdf.pages):
+                    try:
+                        text = page.extract_text()
+                        if text:
+                            text_content.append(text)
+                        
+                        # Progress indicator for large PDFs
+                        if (i + 1) % 10 == 0 or (i + 1) == total_pages:
+                            print(f"Processed {i + 1}/{total_pages} pages...")
+                    except Exception as page_error:
+                        print(f"Warning: Error extracting text from page {i + 1}: {page_error}")
+                        continue
+                
+                print(f"PDF extraction complete. Extracted {len(''.join(text_content))} characters.")
+                return "\n".join(text_content)
         except ImportError:
             pass
         
-        # Fallback to PyMuPDF
+        # Fallback to PyMuPDF (faster for large files)
         try:
             import fitz
             doc = fitz.open(file_path)
-            for page in doc:
-                text_content.append(page.get_text())
+            total_pages = len(doc)
+            print(f"Extracting text from PDF with {total_pages} pages using PyMuPDF...")
+            
+            for page_num in range(total_pages):
+                try:
+                    page = doc[page_num]
+                    text = page.get_text()
+                    if text:
+                        text_content.append(text)
+                    
+                    # Progress indicator for large PDFs
+                    if (page_num + 1) % 10 == 0 or (page_num + 1) == total_pages:
+                        print(f"Processed {page_num + 1}/{total_pages} pages...")
+                except Exception as page_error:
+                    print(f"Warning: Error extracting text from page {page_num + 1}: {page_error}")
+                    continue
+            
             doc.close()
+            print(f"PDF extraction complete. Extracted {len(''.join(text_content))} characters.")
             return "\n".join(text_content)
         except Exception as e:
             print(f"Error extracting text from PDF: {e}")

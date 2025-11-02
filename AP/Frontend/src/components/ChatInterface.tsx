@@ -14,12 +14,34 @@ const FormattedMessage = ({ content }: { content: string }) => {
   let bulletItems: string[] = [];
   let numberedItems: string[] = [];
 
+  // Handle bold text (markdown style)
+  const processBold = (text: string): React.ReactNode[] => {
+    const parts: React.ReactNode[] = [];
+    const boldRegex = /\*\*(.+?)\*\*/g;
+    let lastIndex = 0;
+    let match;
+    
+    while ((match = boldRegex.exec(text)) !== null) {
+      if (match.index > lastIndex) {
+        parts.push(text.substring(lastIndex, match.index));
+      }
+      parts.push(<strong key={`bold-${parts.length}`} className="font-bold text-foreground">{match[1]}</strong>);
+      lastIndex = match.index + match[0].length;
+    }
+    
+    if (lastIndex < text.length) {
+      parts.push(text.substring(lastIndex));
+    }
+    
+    return parts.length > 0 ? parts : [text];
+  };
+
   const flushBulletList = () => {
     if (bulletItems.length > 0) {
       formattedLines.push(
         <ul key={`bullet-list-${formattedLines.length}`} className="list-disc list-inside space-y-1 ml-2 mt-2 mb-2">
           {bulletItems.map((item, idx) => (
-            <li key={idx} className="text-sm leading-relaxed">{item.trim()}</li>
+            <li key={idx} className="text-sm leading-relaxed">{processBold(item.trim())}</li>
           ))}
         </ul>
       );
@@ -33,7 +55,7 @@ const FormattedMessage = ({ content }: { content: string }) => {
       formattedLines.push(
         <ol key={`numbered-list-${formattedLines.length}`} className="list-decimal list-inside space-y-1 ml-2 mt-2 mb-2">
           {numberedItems.map((item, idx) => (
-            <li key={idx} className="text-sm leading-relaxed">{item.trim()}</li>
+            <li key={idx} className="text-sm leading-relaxed">{processBold(item.trim())}</li>
           ))}
         </ol>
       );
@@ -82,28 +104,6 @@ const FormattedMessage = ({ content }: { content: string }) => {
       formattedLines.push(<br key={`br-${index}`} />);
       return;
     }
-
-    // Handle bold text (markdown style)
-    const processBold = (text: string): React.ReactNode[] => {
-      const parts: React.ReactNode[] = [];
-      const boldRegex = /\*\*(.+?)\*\*/g;
-      let lastIndex = 0;
-      let match;
-      
-      while ((match = boldRegex.exec(text)) !== null) {
-        if (match.index > lastIndex) {
-          parts.push(text.substring(lastIndex, match.index));
-        }
-        parts.push(<strong key={`bold-${parts.length}`} className="font-semibold">{match[1]}</strong>);
-        lastIndex = match.index + match[0].length;
-      }
-      
-      if (lastIndex < text.length) {
-        parts.push(text.substring(lastIndex));
-      }
-      
-      return parts.length > 0 ? parts : [text];
-    };
 
     // Check for headers (## or ###)
     if (trimmedLine.startsWith('###')) {

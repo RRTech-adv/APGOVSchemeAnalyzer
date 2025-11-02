@@ -11,6 +11,9 @@ interface Scheme {
   current_status?: string;
   data_source?: string;
   remarks?: string;
+  additional_details?: Record<string, any>;
+  sub_category?: string;
+  is_info_only?: boolean;
 }
 
 interface SectorCardProps {
@@ -20,8 +23,10 @@ interface SectorCardProps {
 }
 
 const SectorCard = ({ title, schemes, icon }: SectorCardProps) => {
-  const avgPercentage = schemes.length > 0 
-    ? schemes.reduce((sum, s) => sum + (s.percentage || s.achievement_percentage || 0), 0) / schemes.length 
+  // Calculate average percentage only from schemes with percentages
+  const schemesWithPercentage = schemes.filter(s => (s.percentage !== undefined || s.achievement_percentage !== undefined) && !s.is_info_only);
+  const avgPercentage = schemesWithPercentage.length > 0 
+    ? schemesWithPercentage.reduce((sum, s) => sum + (s.percentage || s.achievement_percentage || 0), 0) / schemesWithPercentage.length 
     : 0;
   
   const getTrendIcon = (percentage: number) => {
@@ -55,10 +60,12 @@ const SectorCard = ({ title, schemes, icon }: SectorCardProps) => {
             <div key={index} className="border-l-2 border-primary/30 pl-4 py-2 hover:border-primary transition-smooth">
               <div className="flex items-start justify-between mb-1">
                 <p className="text-sm font-medium text-foreground">{scheme.name}</p>
-                <div className="flex items-center space-x-1">
-                  {getTrendIcon(scheme.percentage ?? scheme.achievement_percentage ?? 0)}
-                  <span className="text-sm font-semibold">{scheme.percentage ?? scheme.achievement_percentage ?? 0}%</span>
-                </div>
+                {(scheme.percentage !== undefined || scheme.achievement_percentage !== undefined) && !scheme.is_info_only && (
+                  <div className="flex items-center space-x-1">
+                    {getTrendIcon(scheme.percentage ?? scheme.achievement_percentage ?? 0)}
+                    <span className="text-sm font-semibold">{scheme.percentage ?? scheme.achievement_percentage ?? 0}%</span>
+                  </div>
+                )}
               </div>
               {(scheme.target !== undefined || scheme.achievement !== undefined) && (
                 <div className="flex items-center space-x-4 text-xs text-muted-foreground">
@@ -72,17 +79,40 @@ const SectorCard = ({ title, schemes, icon }: SectorCardProps) => {
                   Status: {scheme.current_status}
                 </div>
               )}
-              {/* Progress Bar */}
-              <div className="mt-2 w-full bg-muted rounded-full h-1.5">
-                <div 
-                  className={`h-1.5 rounded-full transition-all ${
-                    (scheme.percentage || scheme.achievement_percentage || 0) >= 90 ? 'bg-green-600' :
-                    (scheme.percentage || scheme.achievement_percentage || 0) >= 70 ? 'bg-yellow-600' :
-                    'bg-red-600'
-                  }`}
-                  style={{ width: `${Math.min(scheme.percentage || scheme.achievement_percentage || 0, 100)}%` }}
-                />
-              </div>
+              {scheme.data_source && (
+                <div className="text-xs text-muted-foreground mt-1">
+                  Data Source: {scheme.data_source}
+                </div>
+              )}
+              {scheme.remarks && (
+                <div className="text-xs text-muted-foreground mt-1">
+                  Remarks: {scheme.remarks}
+                </div>
+              )}
+              {/* Display all additional details */}
+              {scheme.additional_details && Object.keys(scheme.additional_details).length > 0 && (
+                <div className="mt-2 space-y-1">
+                  <div className="text-xs font-semibold text-foreground">Additional Information:</div>
+                  {Object.entries(scheme.additional_details).map(([key, value]) => (
+                    <div key={key} className="text-xs text-muted-foreground ml-2">
+                      <span className="font-medium">{key.replace(/_/g, ' ')}:</span> {String(value)}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {/* Progress Bar - only show if percentage is available */}
+              {(scheme.percentage !== undefined || scheme.achievement_percentage !== undefined) && (
+                <div className="mt-2 w-full bg-muted rounded-full h-1.5">
+                  <div 
+                    className={`h-1.5 rounded-full transition-all ${
+                      (scheme.percentage || scheme.achievement_percentage || 0) >= 90 ? 'bg-green-600' :
+                      (scheme.percentage || scheme.achievement_percentage || 0) >= 70 ? 'bg-yellow-600' :
+                      'bg-red-600'
+                    }`}
+                    style={{ width: `${Math.min(scheme.percentage || scheme.achievement_percentage || 0, 100)}%` }}
+                  />
+                </div>
+              )}
             </div>
           ))}
         </div>

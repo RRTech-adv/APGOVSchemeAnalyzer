@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from datetime import date
 
 # Upload schemas
@@ -23,7 +23,9 @@ class ActionPoint(BaseModel):
 
 class SubCategory(BaseModel):
     sub_category_name: str
-    action_points: List[ActionPoint] = []
+    # Support both old format (action_points directly) and new format (information object)
+    action_points: Optional[List[ActionPoint]] = None
+    information: Optional[Dict[str, Any]] = None  # Contains action_points and additional_details
 
 class Sector(BaseModel):
     sector_name: str

@@ -58,6 +58,12 @@ const Landing = () => {
               variant="hero"
               onClick={() => navigate('/login')}
               className="bg-white text-primary hover:bg-white/90 shadow-2xl"
+              style= {{
+                backgroundColor: 'blue',
+                borderColor: 'white',
+                borderWidth: '2px',
+                color: 'white',
+              }}
             >
               Login to Dashboard
               <ArrowRight className="ml-2 h-5 w-5" />

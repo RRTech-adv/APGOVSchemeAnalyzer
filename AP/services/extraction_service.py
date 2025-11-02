@@ -57,39 +57,66 @@ class ExtractionService:
                         sub_category.sub_category_name
                     )
                     
-                    # Collect existing action points
-                    existing_action_points = []
+                    # Collect existing data
+                    existing_info = {"action_points": [], "additional_details": {}}
                     for existing_item in existing_data:
                         try:
-                            existing_ap_data = json.loads(existing_item["data_json"])
-                            existing_action_points.extend(existing_ap_data.get("action_points", []))
-                        except (json.JSONDecodeError, KeyError):
+                            existing_data_parsed = json.loads(existing_item["data_json"])
+                            # Handle both old format (action_points directly) and new format (information object)
+                            if "information" in existing_data_parsed:
+                                # New format
+                                if "action_points" in existing_data_parsed["information"]:
+                                    existing_info["action_points"].extend(existing_data_parsed["information"]["action_points"])
+                                if "additional_details" in existing_data_parsed["information"]:
+                                    existing_info["additional_details"].update(existing_data_parsed["information"]["additional_details"])
+                            elif "action_points" in existing_data_parsed:
+                                # Old format
+                                existing_info["action_points"].extend(existing_data_parsed.get("action_points", []))
+                        except (json.JSONDecodeError, KeyError, TypeError) as e:
+                            print(f"Error parsing existing data: {e}")
                             pass
                     
-                    # Get new action points from current document
-                    new_action_points = [
-                        {
-                            "action_name": ap.action_name,
-                            "current_status": ap.current_status,
-                            "achievement_percentage": ap.achievement_percentage,
-                            "data_source": ap.data_source,
-                            "remarks": ap.remarks
-                        }
-                        for ap in sub_category.action_points
-                    ]
+                    # Get new data from current document
+                    new_info = {"action_points": [], "additional_details": {}}
                     
-                    # Merge: Combine existing and new action points
-                    # Use a dictionary to avoid duplicates based on action_name
+                    # Handle both old format (action_points directly) and new format (information object)
+                    if sub_category.information:
+                        # New format: extract from information object
+                        new_info["action_points"] = [
+                            {
+                                "action_name": ap.get("action_name", ""),
+                                "current_status": ap.get("current_status"),
+                                "achievement_percentage": ap.get("achievement_percentage"),
+                                "data_source": ap.get("data_source"),
+                                "remarks": ap.get("remarks")
+                            }
+                            for ap in sub_category.information.get("action_points", [])
+                        ]
+                        new_info["additional_details"] = sub_category.information.get("additional_details", {})
+                    elif sub_category.action_points:
+                        # Old format: action_points directly
+                        new_info["action_points"] = [
+                            {
+                                "action_name": ap.action_name,
+                                "current_status": ap.current_status,
+                                "achievement_percentage": ap.achievement_percentage,
+                                "data_source": ap.data_source,
+                                "remarks": ap.remarks
+                            }
+                            for ap in sub_category.action_points
+                        ]
+                    
+                    # Merge action points: Use a dictionary to avoid duplicates based on action_name
                     merged_action_points_dict = {}
                     
                     # Add existing action points first
-                    for ap in existing_action_points:
+                    for ap in existing_info["action_points"]:
                         action_name = ap.get("action_name", "")
                         if action_name:
                             merged_action_points_dict[action_name] = ap
                     
                     # Add/update with new action points (newer data takes precedence)
-                    for ap in new_action_points:
+                    for ap in new_info["action_points"]:
                         action_name = ap.get("action_name", "")
                         if action_name:
                             merged_action_points_dict[action_name] = ap
@@ -97,9 +124,16 @@ class ExtractionService:
                     # Convert back to list
                     merged_action_points = list(merged_action_points_dict.values())
                     
-                    # Serialize merged action_points to JSON
+                    # Merge additional_details (newer data takes precedence)
+                    merged_additional_details = existing_info["additional_details"].copy()
+                    merged_additional_details.update(new_info["additional_details"])
+                    
+                    # Serialize merged data to JSON with new format
                     data_json = json.dumps({
-                        "action_points": merged_action_points
+                        "information": {
+                            "action_points": merged_action_points,
+                            "additional_details": merged_additional_details
+                        }
                     })
                     
                     try:
@@ -152,7 +186,16 @@ class ExtractionService:
         context_parts = []
         for item in data:
             try:
-                action_points = json.loads(item["data_json"]).get("action_points", [])
+                data_parsed = json.loads(item["data_json"])
+                # Handle both old format (action_points directly) and new format (information object)
+                if "information" in data_parsed:
+                    info = data_parsed["information"]
+                    action_points = info.get("action_points", [])
+                    additional_details = info.get("additional_details", {})
+                else:
+                    action_points = data_parsed.get("action_points", [])
+                    additional_details = {}
+                
                 context_parts.append(f"\nSector: {item['sector_name']}")
                 context_parts.append(f"Sub-Category: {item['sub_category']}")
                 context_parts.append(f"Version Date: {item['version_date']}")
@@ -168,6 +211,13 @@ class ExtractionService:
                         context_parts.append(f"    Data Source: {ap['data_source']}")
                     if ap.get('remarks'):
                         context_parts.append(f"    Remarks: {ap['remarks']}")
+                
+                # Add all additional details
+                if additional_details:
+                    context_parts.append("  Additional Information:")
+                    for key, value in additional_details.items():
+                        context_parts.append(f"    {key}: {value}")
+                
                 context_parts.append("")
             except Exception as e:
                 print(f"Error formatting context item: {e}")

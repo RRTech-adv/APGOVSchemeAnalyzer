@@ -317,10 +317,27 @@ class DatabaseService:
                 result["sectors"][sector_name] = {}
             
             try:
-                action_points_data = json.loads(item["data_json"])
-                result["sectors"][sector_name][sub_category] = action_points_data
+                data_parsed = json.loads(item["data_json"])
+                # Handle both old format (action_points directly) and new format (information object)
+                if "information" in data_parsed:
+                    # New format: store the full information object
+                    result["sectors"][sector_name][sub_category] = data_parsed["information"]
+                elif "action_points" in data_parsed:
+                    # Old format: convert to new format
+                    result["sectors"][sector_name][sub_category] = {
+                        "action_points": data_parsed.get("action_points", []),
+                        "additional_details": {}
+                    }
+                else:
+                    result["sectors"][sector_name][sub_category] = {
+                        "action_points": [],
+                        "additional_details": {}
+                    }
             except json.JSONDecodeError:
-                result["sectors"][sector_name][sub_category] = {"action_points": []}
+                result["sectors"][sector_name][sub_category] = {
+                    "action_points": [],
+                    "additional_details": {}
+                }
         
         return result
     

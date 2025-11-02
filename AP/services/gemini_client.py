@@ -39,11 +39,12 @@ class GeminiClient:
         }
         
         try:
+            # Increased timeout for large documents that may need multiple API calls
             response = requests.post(
                 self.api_url,
                 headers=self.headers,
                 json=payload,
-                timeout=60
+                timeout=300  # 5 minutes - enough for processing large PDFs with many chunks
             )
             
             response.raise_for_status()
@@ -93,7 +94,7 @@ class GeminiClient:
         # Approximately 8000 chars for document text, leaving space for prompt template
         CHUNK_SIZE = 8000
         OVERLAP_SIZE = 500  # Overlap between chunks to avoid losing context
-        
+        print(len(document_text))
         # Check if document needs chunking
         if len(document_text) <= CHUNK_SIZE:
             # Small document - process directly
@@ -106,16 +107,31 @@ class GeminiClient:
         
         # Process each chunk and collect results
         all_extracted_data = []
+        failed_chunks = []
         for i, chunk in enumerate(chunks):
             is_last = (i == len(chunks) - 1)
-            print(f"Processing chunk {i + 1}/{len(chunks)}...")
+            print(f"Processing chunk {i + 1}/{len(chunks)} ({len(chunk)} chars)...")
             
-            chunk_result = self._extract_from_chunk(chunk, district_name, upload_date, is_last=is_last, chunk_num=i+1, total_chunks=len(chunks))
-            
-            if chunk_result:
-                all_extracted_data.append(chunk_result)
-            else:
-                print(f"Warning: Failed to extract data from chunk {i + 1}")
+            try:
+                chunk_result = self._extract_from_chunk(chunk, district_name, upload_date, is_last=is_last, chunk_num=i+1, total_chunks=len(chunks))
+                
+                if chunk_result:
+                    all_extracted_data.append(chunk_result)
+                    print(f"Successfully processed chunk {i + 1}/{len(chunks)}")
+                else:
+                    print(f"Warning: Failed to extract data from chunk {i + 1}")
+                    failed_chunks.append(i + 1)
+            except Exception as e:
+                print(f"Error processing chunk {i + 1}: {e}")
+                failed_chunks.append(i + 1)
+        
+        # If too many chunks failed, return None
+        if len(failed_chunks) > len(chunks) / 2:
+            print(f"Error: More than half of chunks ({len(failed_chunks)}/{len(chunks)}) failed to process")
+            return None
+        
+        if failed_chunks:
+            print(f"Warning: {len(failed_chunks)} chunks failed, but continuing with successful chunks")
         
         if not all_extracted_data:
             return None
@@ -249,17 +265,45 @@ class GeminiClient:
                     
                     # Initialize sub_category if not exists
                     if sub_category_name not in merged_sectors[sector_name]:
-                        merged_sectors[sector_name][sub_category_name] = []
+                        merged_sectors[sector_name][sub_category_name] = {
+                            "action_points": [],
+                            "additional_details": {}
+                        }
                     
-                    # Collect action points
-                    action_points = sub_cat.get("action_points", [])
-                    merged_sectors[sector_name][sub_category_name].extend(action_points)
+                    # Handle both old format (action_points directly) and new format (information object)
+                    subcat_info = sub_cat.get("information", {})
+                    if not subcat_info:
+                        # Fallback: try direct action_points (old format)
+                        action_points = sub_cat.get("action_points", [])
+                        if action_points:
+                            merged_sectors[sector_name][sub_category_name]["action_points"].extend(action_points)
+                    else:
+                        # New format: extract from information object
+                        action_points = subcat_info.get("action_points", [])
+                        if action_points:
+                            merged_sectors[sector_name][sub_category_name]["action_points"].extend(action_points)
+                        
+                        # Merge additional_details
+                        additional_details = subcat_info.get("additional_details", {})
+                        if additional_details:
+                            # Merge dictionaries, newer data takes precedence
+                            merged_sectors[sector_name][sub_category_name]["additional_details"].update(additional_details)
         
         # Build final merged structure
         merged_sectors_list = []
         for sector_name, sub_cats in merged_sectors.items():
             sub_categories_list = []
-            for sub_category_name, action_points in sub_cats.items():
+            for sub_category_name, subcat_data in sub_cats.items():
+                # Handle both old format (list of action_points) and new format (dict with action_points and additional_details)
+                if isinstance(subcat_data, list):
+                    # Old format: convert to new format
+                    action_points = subcat_data
+                    additional_details = {}
+                else:
+                    # New format
+                    action_points = subcat_data.get("action_points", [])
+                    additional_details = subcat_data.get("additional_details", {})
+                
                 # Deduplicate action points based on action_name
                 action_points_dict = {}
                 for ap in action_points:
@@ -283,7 +327,10 @@ class GeminiClient:
                 
                 sub_categories_list.append({
                     "sub_category_name": sub_category_name,
-                    "action_points": unique_action_points
+                    "information": {
+                        "action_points": unique_action_points,
+                        "additional_details": additional_details
+                    }
                 })
             
             merged_sectors_list.append({
@@ -314,6 +361,13 @@ IMPORTANT: This is chunk {chunk_num} of {total_chunks} from a large document.
         prompt = f"""You are an AI model that extracts structured and factual information
 from government documents related to schemes in Arunachal Pradesh.{chunk_info}
 
+CRITICAL EXTRACTION REQUIREMENTS:
+1. ACTION NAMES: Use ONLY the exact predefined subcategory names listed below as action_name. DO NOT create custom action names.
+2. COMPREHENSIVE EXTRACTION: Extract EVERY piece of information available in the document for each subcategory. Nothing should be missed.
+3. LOGICAL STATUS: For each action point, analyze the content and infer a logical current_status based on the information found (e.g., "In Progress", "Completed", "Pending", "On Track", "Delayed", etc.)
+4. DATA FIDELITY: Only extract information that is explicitly present in the document. Do not infer or add data that is not in the document, but ensure ALL information in the document is captured.
+5. NO DATA LOSS: Every number, percentage, status, date, target, achievement, description, statistic, note, or any other piece of information mentioned for a subcategory must be captured.
+
 Analyze the document text and organize data according to this exact JSON schema:
 
 {{
@@ -325,15 +379,22 @@ Analyze the document text and organize data according to this exact JSON schema:
       "sub_categories": [
         {{
           "sub_category_name": "Identification and Saturation of Beneficiaries",
-          "action_points": [
-            {{
-              "action_name": "Achieve 100% beneficiary identification",
-              "current_status": "text or null",
-              "achievement_percentage": "number or null",
-              "data_source": "text or null",
-              "remarks": "text or null"
+          "information": {{
+            "action_points": [
+              {{
+                "action_name": "Identification and Saturation of Beneficiaries",
+                "current_status": "Inferred from document content - e.g., 'In Progress', 'Completed', 'On Track', etc.",
+                "achievement_percentage": "number or null - extract from document",
+                "data_source": "text or null - extract from document",
+                "remarks": "text or null - any additional notes from document"
+              }}
+            ],
+            "additional_details": {{
+              "target_beneficiaries": "extract all available data",
+              "current_coverage": "extract all available data",
+              "any_other_information": "extract ALL available data - nothing should be missed"
             }}
-          ]
+          }}
         }}
       ]
     }}
@@ -341,12 +402,19 @@ Analyze the document text and organize data according to this exact JSON schema:
 }}
 
 Rules:
-- Always include all fields (use null if data not available).
-- Maintain consistent key names exactly as shown above.
+- ACTION NAME MUST BE EXACT SUBCATEGORY NAME: For each subcategory, create exactly ONE action point where action_name is the EXACT subcategory name from the predefined list below.
+- EXTRACT EVERYTHING: Capture ALL information available in the document for each subcategory:
+  * All numbers, percentages, targets, achievements
+  * All status information, dates, timelines
+  * All descriptions, statistics, notes, observations
+  * All any other data mentioned related to that subcategory
+- LOGICAL STATUS INFERENCE: Analyze the content for each subcategory and infer a meaningful current_status (e.g., "Completed", "In Progress", "Pending", "On Track", "Delayed", "Under Review", etc.) based on the actual content in the document.
+- ADDITIONAL_DETAILS: Put ALL extracted information (beyond action_point fields) into additional_details with descriptive keys.
+- Use descriptive keys that reflect actual information found (e.g., "total_beneficiaries", "coverage_percentage", "funds_allocated", "implementation_status", "target_value", "achievement_value", "completion_date", etc.)
+- DOCUMENT-BOUND: Only extract data explicitly present in the document, but ensure NO data in the document is missed.
 - Ensure the district field is "{district_name}" and upload_date is "{upload_date}".
 - Categorize content strictly into predefined sectors and sub-categories listed below.
 - Only include sectors and sub_categories that have relevant data in the document.
-- Extract action_points with all specified fields.
 {("- Extract ALL relevant information from this chunk, even if it seems incomplete. The chunks will be merged." if is_chunk else "")}
 
 Predefined Sectors & Sub-Categories:
