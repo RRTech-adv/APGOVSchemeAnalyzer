@@ -155,22 +155,15 @@ class GeminiClient:
         chunks = []
         start = 0
         text_length = len(text)
-        
+
+        if overlap_size >= chunk_size:
+            raise ValueError("overlap_size must be smaller than chunk_size")
+
         while start < text_length:
-            # Calculate end position
             end = min(start + chunk_size, text_length)
-            
-            # Extract chunk
-            chunk = text[start:end]
-            chunks.append(chunk)
-            
-            # Move start position with overlap
-            start = end - overlap_size
-            
-            # Prevent infinite loop
-            if start >= text_length - 1:
-                break
-        
+            chunks.append(text[start:end])
+            start += chunk_size - overlap_size  # move forward properly
+
         return chunks
     
     def _extract_from_chunk(self, chunk_text: str, district_name: str, upload_date: str, 
